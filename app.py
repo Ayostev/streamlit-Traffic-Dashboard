@@ -1,3 +1,4 @@
+import time
 import streamlit as st
 import gspread
 from google.oauth2 import service_account
@@ -5,162 +6,214 @@ from googleapiclient.discovery import build
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime
 
-# Define the scope
+# -------------------- CONFIGURATION --------------------
+
+# Define the scope and credentials
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 SERVICE_ACCOUNT_FILE = r'C:\Users\Joshua Odeleye\Documents\streamlit-Traffic\credentials.json'
 
 credentials = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+    SERVICE_ACCOUNT_FILE, scopes=SCOPES
+)
 
 service = build('sheets', 'v4', credentials=credentials)
 SPREADSHEET_ID = '1YrdM-TmiQzVnW_eg9bGlXojJWhY8bUHMrOVKl3k55Jw'
 RANGE_NAME = 'sheet1!A2:F'  # Update the range as needed
 
+
 def get_data_from_sheet():
     sheet = service.spreadsheets()
-    result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=RANGE_NAME).execute()
+    result = sheet.values().get(
+        spreadsheetId=SPREADSHEET_ID,
+        range=RANGE_NAME
+    ).execute()
     values = result.get('values', [])
     if not values:
-        st.write('No data found.')
+        st.warning('No data found.')
         return pd.DataFrame()
     else:
-        df = pd.DataFrame(values, columns=['ID', 'Vehicle Type', 'Direction', 'Speed (km/h)', 'Time', 'Congestion Level'])
+        df = pd.DataFrame(
+            values,
+            columns=['ID', 'Vehicle Type', 'Direction', 'Speed (km/h)', 'Current Time', 'Congestion Level']
+        )
         return df
 
 
+# -------------------- STREAMLIT APP --------------------
+
+# Set page configuration
 st.set_page_config(
-    page_title = 'Traffic Dashboard',
-    page_icon = '✅',
-    layout = 'wide'
+    page_title='Traffic Dashboard',
+    page_icon='🚗',
+    layout='wide'
 )
 
-# dashboard title
+# Dashboard title
 st.markdown("""
-    <style>
-    .title {
-        text-align: center;
-        font-size: 2em;
-        font-weight: bold;
-         margin-top: -80px;
-    }
-    </style>
+    <h1 style='text-align: center; margin-bottom: 50px;'>
+        TARABA TRANSPORT DT
+    </h1>
 """, unsafe_allow_html=True)
 
-# HTML to render the title
-st.markdown('<h1 class="title">Real-Time Traffic Information </h1>', unsafe_allow_html=True)
+# Sidebar filters
+st.sidebar.header("Filters")
+start_button = st.sidebar.checkbox("Start Real-Time Update")
 
-# Get data from Google Sheets
+# Placeholder for error messages
+error_placeholder = st.empty()
+
+# Initialize data
 data = get_data_from_sheet()
 
-if not data.empty:
-    # Extract unique vehicle types and directions for the select boxes
-    vehicle_types = ['All'] + data["Vehicle Type"].unique().tolist()
-    directions = ['All'] + data["Direction"].unique().tolist()
+if data.empty:
+    st.stop()
 
-    # Selectbox for vehicle type and direction
-    selected_vehicle_type = st.sidebar.selectbox("Select Vehicle Type", vehicle_types)
-    selected_direction = st.sidebar.selectbox("Select Direction", directions)
+# Extract unique values for filters
+vehicle_types = ['All'] + sorted(data["Vehicle Type"].unique())
+directions = ['All'] + sorted(data["Direction"].unique())
 
-    # Filter the data based on the selected vehicle type and direction
-    if selected_vehicle_type != 'All':
-        data = data[data["Vehicle Type"] == selected_vehicle_type]
-    if selected_direction != 'All':
-        data = data[data["Direction"] == selected_direction]
+# Sidebar selectboxes for filtering
+selected_vehicle_type = st.sidebar.selectbox(
+    "Select Vehicle Type",
+    vehicle_types,
+    key='vehicle_type_selectbox'
+)
 
-    # Display the filtered data
-    #st.write(f"Filtered Data for Vehicle Type: {selected_vehicle_type} and Direction: {selected_direction}")
-    #st.dataframe(data)
-#else:
-    #st.write("No data to display.")
+selected_direction = st.sidebar.selectbox(
+    "Select Direction",
+    directions,
+    key='direction_selectbox'
+)
 
-placeholder = st.empty()
+# Initialize placeholders for KPIs and charts
+kpi_placeholder = st.empty()
+chart_placeholder = st.empty()
+data_table_placeholder = st.empty()
 
+# Main update loop
+if start_button:
+    while True:
+        try:
+            # Fetch and process data
+            data = get_data_from_sheet()
 
-# Calculate Average Speed
-average_speed = data["Speed (km/h)"].astype(float).mean()
+            if data.empty:
+                error_placeholder.error("No data available to display.")
+                time.sleep(1)
+                continue
+            else:
+                error_placeholder.empty()
 
-# Calculate Total Vehicle Type Count
-total_vehicle_count = data["Vehicle Type"].count()
+            # Data type conversions
+            data["Speed (km/h)"] = pd.to_numeric(data["Speed (km/h)"], errors='coerce')
+            data['Current Time'] = pd.to_datetime(data['Current Time'], errors='coerce')
 
-# Calculate Total Counts for Each Vehicle Type
-total_car_count = data[data["Vehicle Type"].str.lower() == "car"].shape[0]
-total_bus_count = data[data["Vehicle Type"].str.lower() == "bus"].shape[0]
-total_motorcycle_count = data[data["Vehicle Type"].str.lower() == "motorcycle"].shape[0]
+            # Apply filters
+            filtered_data = data.copy()
+            if selected_vehicle_type != 'All':
+                filtered_data = filtered_data[filtered_data["Vehicle Type"] == selected_vehicle_type]
+            if selected_direction != 'All':
+                filtered_data = filtered_data[filtered_data["Direction"] == selected_direction]
 
-# Given distance in kilometers
-distance = 1.47  # km
+            if filtered_data.empty:
+                error_placeholder.warning("No data matches the selected filters.")
+                time.sleep(1)
+                continue
+            else:
+                error_placeholder.empty()
 
-# Calculate Average Travel Time (time = distance / speed)
-average_travel_time = distance / average_speed * 60  # travel time in minutes
+            # Calculate KPIs
+            average_speed = filtered_data["Speed (km/h)"].mean()
+            total_vehicle_count = len(filtered_data)
+            distance = 1.47  # km
+            average_travel_time = (distance / average_speed) * 60 if average_speed else None
+            daily_traffic = filtered_data.groupby(filtered_data['Current Time'].dt.date).size().reset_index(
+                name='Count')
+            average_daily_traffic = daily_traffic['Count'].mean() if not daily_traffic.empty else 0
 
-with placeholder.container():
-    # create three columns
-    st.markdown("""
-        <style>
-        .metric-container {
-            text-align: center;
-            border: 2px solid #e6e6e6;
-            border-radius: 10px;
-            padding: 12px;
-            padding-left: 0.1rem;
-            padding-right: 0.1rem;
-            margin: 8px;
-        }
-        .metric-value {
-            font-size: 2em;
-            font-weight: bold;
-        }
-        .metric-label {
-            font-size: 1.2em;
-            color: red;
-        }
-        .metric-button {
-            margin-top: 10px;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+            # Update KPIs
+            with kpi_placeholder.container():
+                kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
-    # Create columns for KPIs
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+                kpi1.metric(
+                    label="Average Speed (km/h)",
+                    value=f"{average_speed:.2f}" if average_speed else "N/A"
+                )
 
-    # Display metrics in columns with additional styling
-    with kpi1:
-        st.markdown(
-            '<div class="metric-container"><div class="metric-value">' + f"{average_speed:.2f} km/h" + '</div><div class="metric-label">Average Speed</div></div>',
-            unsafe_allow_html=True)
+                kpi2.metric(
+                    label="Average Travel Time (min)",
+                    value=f"{average_travel_time:.2f}" if average_travel_time else "N/A"
+                )
 
-    with kpi2:
-        st.markdown(
-            '<div class="metric-container"><div class="metric-value">' + f"{average_travel_time:.2f} min" + '</div><div class="metric-label">Average Travel Time</div></div>',
-            unsafe_allow_html=True)
+                kpi3.metric(
+                    label="Segment Distance (km)",
+                    value=f"{distance:.2f}"
+                )
 
-    with kpi3:
-        st.markdown(
-            '<div class="metric-container"><div class="metric-value">' + f"{distance:.4f} km" + '</div><div class="metric-label">Segment Distance</div></div>',
-            unsafe_allow_html=True)
+                kpi4.metric(
+                    label="Total Vehicle Count",
+                    value=f"{total_vehicle_count}"
+                )
 
-    with kpi4:
-        st.markdown(
-            '<div class="metric-container"><div class="metric-value">' + f"{total_vehicle_count}" + '</div><div class="metric-label">Total Vehicle Count</div></div>',
-            unsafe_allow_html=True)
+            # Update charts
+            with chart_placeholder.container():
+                chart_col1, chart_col2, chart_col3 = st.columns(3)
 
-    fig_col1, fig_col2, fig_col3 = st.columns(3)
+                with chart_col1:
+                    fig1 = px.histogram(
+                        filtered_data,
+                        x="Direction",
+                        title="Distribution of Directions",
+                        color_discrete_sequence=['#636EFA']
+                    )
+                    st.plotly_chart(fig1, use_container_width=True)
 
-    # Create histogram for "Direction" column
-    with fig_col1:
-        st.markdown(" ")
-        fig1 = px.histogram(data, x="Direction", title="Distribution of Directions")
-        st.plotly_chart(fig1, use_container_width=True)
+                with chart_col2:
+                    fig2 = px.histogram(
+                        filtered_data,
+                        x="Vehicle Type",
+                        title="Distribution of Vehicle Types",
+                        color_discrete_sequence=['#EF553B']
+                    )
+                    st.plotly_chart(fig2, use_container_width=True)
 
-    # Create histogram for "Vehicle Type" column
-    with fig_col2:
-        st.markdown(" ")
-        fig2 = px.histogram(data, x="Vehicle Type", title="Distribution of Vehicle Types")
-        st.plotly_chart(fig2, use_container_width=True)
+                with chart_col3:
+                    if not daily_traffic.empty:
+                        fig3 = go.Figure()
+                        fig3.add_trace(go.Bar(
+                            x=daily_traffic['Current Time'],
+                            y=daily_traffic['Count'],
+                            name='Daily Traffic',
+                            marker_color='green'
+                        ))
+                        fig3.add_trace(go.Scatter(
+                            x=daily_traffic['Current Time'],
+                            y=[average_daily_traffic] * len(daily_traffic),
+                            mode='lines',
+                            name='Average Daily Traffic',
+                            line=dict(color='red', dash='dash')
+                        ))
+                        fig3.update_layout(
+                            title='Daily Traffic Counts',
+                            xaxis_title='Date',
+                            yaxis_title='Number of Vehicles'
+                        )
+                        st.plotly_chart(fig3, use_container_width=True)
+                    else:
+                        st.info("Not enough data for Daily Traffic chart.")
 
-    # Display the DataFrame for the fetched data
-    with fig_col3:
-        st.markdown("## Traffic Data")
-        st.dataframe(data)
+            # Update data table
+            with data_table_placeholder.container():
+                st.dataframe(filtered_data)
+
+            # Wait for 1 second before next update
+            time.sleep(1)
+
+        except Exception as e:
+            error_placeholder.error(f"An error occurred: {e}")
+            time.sleep(5)
+else:
+    st.info("Real-Time Update is stopped. Check the box in the sidebar to start.")
