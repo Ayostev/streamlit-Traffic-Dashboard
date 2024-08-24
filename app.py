@@ -1,4 +1,5 @@
 import time
+import os
 import streamlit as st
 import gspread
 from google.oauth2 import service_account
@@ -13,13 +14,22 @@ from datetime import datetime
 
 # Define the scope and credentials
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-SERVICE_ACCOUNT_FILE = r'C:\Users\Joshua Odeleye\Documents\streamlit-Traffic\credentials.json'
 
-credentials = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES
-)
+# Reference the service account file path using an environment variable
+SERVICE_ACCOUNT_FILE = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
 
+# Load credentials using the environment variable
+if SERVICE_ACCOUNT_FILE:
+    credentials = service_account.Credentials.from_service_account_file(
+        SERVICE_ACCOUNT_FILE, scopes=SCOPES
+    )
+else:
+    raise FileNotFoundError("Google credentials not found. Please check your environment variable.")
+
+# Build the service
 service = build('sheets', 'v4', credentials=credentials)
+
+# Spreadsheet ID and range configuration
 SPREADSHEET_ID = '1YrdM-TmiQzVnW_eg9bGlXojJWhY8bUHMrOVKl3k55Jw'
 RANGE_NAME = 'sheet1!A2:F'  # Update the range as needed
 
