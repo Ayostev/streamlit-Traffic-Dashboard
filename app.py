@@ -1,5 +1,6 @@
 import time
 import os
+import json
 import streamlit as st
 import gspread
 from google.oauth2 import service_account
@@ -15,16 +16,9 @@ from datetime import datetime
 # Define the scope and credentials
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
-# Reference the service account file path using an environment variable
-SERVICE_ACCOUNT_FILE = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-
-# Load credentials using the environment variable
-if SERVICE_ACCOUNT_FILE:
-    credentials = service_account.Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE, scopes=SCOPES
-    )
-else:
-    raise FileNotFoundError("Google credentials not found. Please check your environment variable.")
+# Load the credentials from Streamlit secrets
+credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+credentials = service_account.Credentials.from_service_account_info(credentials_info, scopes=['https://www.googleapis.com/auth/spreadsheets'])
 
 # Build the service
 service = build('sheets', 'v4', credentials=credentials)
