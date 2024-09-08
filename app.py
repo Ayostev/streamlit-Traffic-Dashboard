@@ -16,9 +16,9 @@ from datetime import datetime
 # Define the scope and credentials
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
-# Load the credentials from Streamlit secrets
-credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-credentials = service_account.Credentials.from_service_account_info(credentials_info, scopes=['https://www.googleapis.com/auth/spreadsheets'])
+# Access the credentials directly from st.secrets
+credentials_info = st.secrets["GOOGLE_CREDENTIALS"]
+credentials = service_account.Credentials.from_service_account_info(credentials_info)
 
 # Build the service
 service = build('sheets', 'v4', credentials=credentials)
