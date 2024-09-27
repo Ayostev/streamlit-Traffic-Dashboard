@@ -17,9 +17,9 @@ from datetime import datetime
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
 # Convert st.secrets to JSON string
-credentials_info = json.dumps(st.secrets["GOOGLE_CREDENTIALS"])
+credentials_info = dict(st.secrets["GOOGLE_CREDENTIALS"])
 # Load credentials from the JSON string
-credentials = service_account.Credentials.from_service_account_info(json.loads(credentials_info))
+credentials = service_account.Credentials.from_service_account_info(credentials_info)
 
 # Build the service
 service = build('sheets', 'v4', credentials=credentials)
